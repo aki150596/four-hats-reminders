@@ -1,0 +1,6 @@
+node_modules/
+# Never commit the Firebase key. It goes in the repo's Actions secrets.
+*.json.key
+*serviceAccount*.json
+*-firebase-adminsdk-*.json
+.env

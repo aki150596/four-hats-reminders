@@ -1,0 +1,38 @@
+name: Send reminders
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # every 5 minutes (GitHub may start runs a few minutes late)
+  workflow_dispatch: {}      # "Run workflow" button for testing
+
+permissions:
+  contents: read
+  actions: write             # lets the last step keep this schedule switched on
+
+concurrency:
+  group: send-reminders
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --omit=dev
+      - name: Send due reminders (checks every 30 seconds for ~4.5 minutes)
+        run: node send-reminders.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          RUN_FOR_SECONDS: "270"
+      # GitHub pauses schedules in repos with no activity for 60 days.
+      # Re-enabling the workflow each run keeps reminders going.
+      - name: Keep the schedule switched on
+        if: github.event_name == 'schedule'
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/reminders.yml/enable" || true
+        env:
+          GH_TOKEN: ${{ github.token }}

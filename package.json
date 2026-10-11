@@ -1,0 +1,13 @@
+{
+  "name": "four-hats-reminders",
+  "private": true,
+  "type": "module",
+  "description": "Sends Four Hats reminders as push notifications on a schedule.",
+  "scripts": {
+    "send": "node send-reminders.mjs"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
+}

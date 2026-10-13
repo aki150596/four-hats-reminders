@@ -29,6 +29,17 @@ const DEAD_TOKEN = new Set([
   "messaging/invalid-argument",
 ]);
 
+const STEP = { hourly: 3600e3, daily: 864e5, weekly: 7 * 864e5 };
+
+// "YYYY-MM-DDTHH:MM" in the person's time zone, the format the app stores.
+function localStamp(ms, tz) {
+  let fmt;
+  try { fmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz || "UTC", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }); }
+  catch { fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }); }
+  const p = Object.fromEntries(fmt.formatToParts(new Date(ms)).map(x => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
 async function sendDue() {
   const due = await db.collection("reminders").where("at", "<=", Date.now()).limit(300).get();
   let sent = 0, devices = 0;
@@ -52,10 +63,20 @@ async function sendDue() {
       });
       devices += res.successCount;
     }
-    // Mark the task as reminded so open apps don't fire it again, then clear the job.
-    await db.collection("users").doc(r.uid).collection("tasks").doc(r.taskId)
-      .update({ reminded: true }).catch(() => {});
-    await doc.ref.delete();
+    const taskRef = db.collection("users").doc(r.uid).collection("tasks").doc(r.taskId);
+    const step = STEP[r.repeat];
+    if (step) {
+      // Repeating reminder: schedule the next one (in the person's own time zone) and keep the entry.
+      let next = r.at;
+      do { next += step; } while (next <= Date.now());
+      const ok = await taskRef.update({ remindAt: localStamp(next, r.tz), reminded: false }).then(() => true, () => false);
+      if (ok) await doc.ref.update({ at: next });
+      else await doc.ref.delete();   // the task is gone
+    } else {
+      // One-off: mark the task as reminded so open apps don't fire it again, then clear the entry.
+      await taskRef.update({ reminded: true }).catch(() => {});
+      await doc.ref.delete();
+    }
     sent++;
   }
   if (sent) console.log(`${new Date().toISOString()}  sent ${sent} reminder(s) to ${devices} device(s)`);

@@ -1,6 +1,6 @@
 # Four Hats reminders
 
-A small scheduled job that sends Four Hats reminders as push notifications, so they arrive
+A small scheduled job that sends Four Hats reminders (and nudges from friends) as push notifications, so they arrive
 even when the app is closed. It runs free on GitHub Actions every 5 minutes. Each run keeps
 checking every 30 seconds, so most reminders land within a minute or two of their time.
 When GitHub is busy, a run can start late.

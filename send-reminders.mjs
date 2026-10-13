@@ -82,9 +82,46 @@ async function sendDue() {
   if (sent) console.log(`${new Date().toISOString()}  sent ${sent} reminder(s) to ${devices} device(s)`);
 }
 
+// Nudges from friends: push each new one to the person's devices once.
+async function sendNudges() {
+  const fresh = await db.collection("nudges").where("pushed", "==", false).limit(200).get();
+  let sent = 0;
+  for (const doc of fresh.docs) {
+    const n = doc.data();
+    await doc.ref.update({ pushed: true });
+    if (n.seen) continue;   // already seen in the open app
+    const devSnap = await db.collection("users").doc(n.to).collection("devices").get();
+    const targets = devSnap.docs.map(d => ({ ref: d.ref, token: d.get("token") })).filter(x => x.token);
+    if (!targets.length) continue;
+    const res = await fcm.sendEachForMulticast({
+      tokens: targets.map(x => x.token),
+      data: {
+        title: `${String(n.fromName || "Someone")} nudged you`,
+        body: String(n.message || "") + (n.taskTitle ? ` · ${n.taskTitle}` : ""),
+        tag: `nudge-${doc.id}`,
+        url: APP_URL,
+      },
+      webpush: { headers: { Urgency: "normal", TTL: "86400" } },
+    });
+    res.responses.forEach((x, i) => {
+      if (!x.success && DEAD_TOKEN.has(x.error?.code)) targets[i].ref.delete().catch(() => {});
+    });
+    sent++;
+  }
+  if (sent) console.log(`${new Date().toISOString()}  pushed ${sent} nudge(s)`);
+}
+
+// Nudges older than two weeks are cleared so the collection stays small.
+async function cleanOldNudges() {
+  const old = await db.collection("nudges").where("at", "<", Date.now() - 14 * 864e5).limit(300).get();
+  await Promise.all(old.docs.map(d => d.ref.delete()));
+}
+
 const started = Date.now();
+await cleanOldNudges().catch(e => console.error("Couldn't clear old nudges:", e.message));
 for (;;) {
   await sendDue();
+  await sendNudges();
   if (Date.now() - started + EVERY > RUN_FOR) break;
   await new Promise(r => setTimeout(r, EVERY));
 }
